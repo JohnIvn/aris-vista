@@ -146,6 +146,121 @@ jobs:
           "$DISCORD_RELEASE_WEBHOOK"
 
 
+  lint:
+    if: github.event_name != 'release'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run ESLint (TS/JS)
+        continue-on-error: true
+        id: lint_ts
+        run: npm run lint
+
+      - name: Run Clippy (Rust)
+        continue-on-error: true
+        id: lint_rs
+        run: |
+          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features > clippy.log 2>&1 || true
+
+      - name: Send Lint Alert
+        if: steps.lint_ts.outcome == 'failure' || steps.lint_rs.outcome == 'failure'
+        env:
+          DISCORD_SECURITY_WEBHOOK: ${{ secrets.DISCORD_SECURITY_WEBHOOK }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || github.event.pull_request.title }}
+        run: |
+
+          TS_STATUS=${{ steps.lint_ts.outcome }}
+          RS_STATUS=${{ steps.lint_rs.outcome }}
+          FILES="$([[ -f clippy.log ]] && grep -E "^error" clippy.log || true)"
+
+          JSON=$(jq -n \
+            --arg title "Lint Check Failed" \
+            --arg repo "$GITHUB_REPOSITORY" \
+            --arg user "$GITHUB_ACTOR" \
+            --arg branch "$GITHUB_REF_NAME" \
+            --arg sha "$GITHUB_SHA" \
+            --arg message "$COMMIT_MESSAGE" \
+            --arg ts "$TS_STATUS" \
+            --arg rs "$RS_STATUS" \
+            --arg url "https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg time "$(date -u)" \
+            '{ 
+              embeds: [{
+                title: $title,
+                color: 16753920,
+                fields: [
+                  {
+                    name: "Repository",
+                    value: $repo,
+                    inline: true
+                  },
+                  {
+                    name: "User",
+                    value: $user,
+                    inline: true
+                  },
+                  {
+                    name: "Branch",
+                    value: $branch,
+                    inline: true
+                  },
+                  {
+                    name: "ESLint (TS/JS)",
+                    value: $ts,
+                    inline: true
+                  },
+                  {
+                    name: "Clippy (Rust)",
+                    value: $rs,
+                    inline: true
+                  },
+                  {
+                    name: "Commit SHA",
+                    value: $sha,
+                    inline: false
+                  },
+                  {
+                    name: "Commit Message",
+                    value: $message,
+                    inline: false
+                  },
+                  {
+                    name: "Workflow Run",
+                    value: $url,
+                    inline: false
+                  },
+                  {
+                    name: "Time",
+                    value: $time,
+                    inline: false
+                  }
+                ]
+              }]
+            }')
+
+          curl \
+          -H "Content-Type: application/json" \
+          -d "$JSON" \
+          "$DISCORD_SECURITY_WEBHOOK"
+
+
   security:
     runs-on: ubuntu-latest
 
