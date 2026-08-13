@@ -1,15 +1,46 @@
 /**
  * Arís Vista — Model Training dashboard
  * Hand-built SVG charts, count-up animations and light interactions.
- * Fully frontend-only (no backend yet).
+ * Frontend-only by default, but reads real GPU stats via Tauri when available.
  */
+
+import { invoke } from "@tauri-apps/api/core";
+
+interface GpuStats {
+  name: string;
+  vendor: string;
+  utilization: number | null;
+  vram_used_mb: number | null;
+  vram_total_mb: number | null;
+  temperature_c: number | null;
+  real: boolean;
+}
+
+interface CpuStats {
+  name: string;
+  utilization: number | null;
+  cores: number | null;
+  real: boolean;
+}
+
+interface RamStats {
+  used_mb: number | null;
+  total_mb: number | null;
+  real: boolean;
+}
+
+interface SystemStats {
+  gpu: GpuStats;
+  cpu: CpuStats;
+  ram: RamStats;
+}
 
 /* ===================== SVG helpers ===================== */
 
 function svgEl(
   ns: string,
   name: string,
-  attrs: Record<string, string | number>
+  attrs: Record<string, string | number>,
 ): SVGElement {
   const el = document.createElementNS(ns, name) as SVGElement;
   for (const [k, v] of Object.entries(attrs)) {
@@ -25,7 +56,7 @@ function sparkline(
   container: SVGSVGElement | null,
   data: number[],
   color: string,
-  fill = false
+  fill = false,
 ): void {
   if (!container) return;
   const w = 120;
@@ -45,8 +76,7 @@ function sparkline(
     .join(" ");
 
   if (fill) {
-    const areaD =
-      `${pathD} L${pts[pts.length - 1][0].toFixed(1)},${h} L${pts[0][0].toFixed(1)},${h} Z`;
+    const areaD = `${pathD} L${pts[pts.length - 1][0].toFixed(1)},${h} L${pts[0][0].toFixed(1)},${h} Z`;
     const area = svgEl(SVG_NS, "path", {
       d: areaD,
       class: "area",
@@ -73,7 +103,9 @@ function smoothPath(pts: [number, number][]): string {
     const c1y = p1[1] + (p2[1] - p0[1]) / 6;
     const c2x = p2[0] - (p3[0] - p1[0]) / 6;
     const c2y = p2[1] - (p3[1] - p1[1]) / 6;
-    d.push(`C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`);
+    d.push(
+      `C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`,
+    );
   }
   return d.join(" ");
 }
@@ -98,9 +130,8 @@ function makeLineChart(host: HTMLElement | null, series: NamedSeries[]): void {
   const iw = w - ml - mr;
   const ih = h - mt - mb;
 
-  const maxVal = Math.ceil(
-    Math.max(...series.flatMap((s) => s.data)) / 0.2
-  ) * 0.2;
+  const maxVal =
+    Math.ceil(Math.max(...series.flatMap((s) => s.data)) / 0.2) * 0.2;
 
   const x = (i: number) => ml + (i / (series[0].data.length - 1)) * iw;
   const y = (v: number) => mt + ih - (v / maxVal) * ih;
@@ -121,10 +152,18 @@ function makeLineChart(host: HTMLElement | null, series: NamedSeries[]): void {
       y2: "1",
     });
     grad.appendChild(
-      svgEl(SVG_NS, "stop", { offset: "0%", "stop-color": s.stroke, "stop-opacity": 0.6 })
+      svgEl(SVG_NS, "stop", {
+        offset: "0%",
+        "stop-color": s.stroke,
+        "stop-opacity": 0.6,
+      }),
     );
     grad.appendChild(
-      svgEl(SVG_NS, "stop", { offset: "100%", "stop-color": s.stroke, "stop-opacity": 0 })
+      svgEl(SVG_NS, "stop", {
+        offset: "100%",
+        "stop-color": s.stroke,
+        "stop-opacity": 0,
+      }),
     );
     defs.appendChild(grad);
   });
@@ -135,9 +174,23 @@ function makeLineChart(host: HTMLElement | null, series: NamedSeries[]): void {
   for (let i = 0; i <= ticks; i++) {
     const v = (maxVal / ticks) * i;
     const yy = y(v);
-    svg.appendChild(svgEl(SVG_NS, "line", { class: "grid-line", x1: ml, y1: yy, x2: w - mr, y2: yy }));
     svg.appendChild(
-      svgEl(SVG_NS, "text", { class: "tick", x: ml - 8, y: yy + 4, "text-anchor": "end", content: v.toFixed(2) === "0.00" ? "0" : v.toFixed(2) })
+      svgEl(SVG_NS, "line", {
+        class: "grid-line",
+        x1: ml,
+        y1: yy,
+        x2: w - mr,
+        y2: yy,
+      }),
+    );
+    svg.appendChild(
+      svgEl(SVG_NS, "text", {
+        class: "tick",
+        x: ml - 8,
+        y: yy + 4,
+        "text-anchor": "end",
+        content: v.toFixed(2) === "0.00" ? "0" : v.toFixed(2),
+      }),
     );
   }
 
@@ -145,17 +198,37 @@ function makeLineChart(host: HTMLElement | null, series: NamedSeries[]): void {
   // x axis labels every few epochs
   for (let i = 0; i < n; i += 8) {
     svg.appendChild(
-      svgEl(SVG_NS, "text", { class: "tick", x: x(i), y: h - 8, "text-anchor": "middle", content: `E${i}` })
+      svgEl(SVG_NS, "text", {
+        class: "tick",
+        x: x(i),
+        y: h - 8,
+        "text-anchor": "middle",
+        content: `E${i}`,
+      }),
     );
   }
-  svg.appendChild(svgEl(SVG_NS, "text", { class: "axis-label", x: x(n - 1), y: h - 8, "text-anchor": "middle", content: "E42" }));
+  svg.appendChild(
+    svgEl(SVG_NS, "text", {
+      class: "axis-label",
+      x: x(n - 1),
+      y: h - 8,
+      "text-anchor": "middle",
+      content: "E42",
+    }),
+  );
 
   series.forEach((s) => {
     const pts: [number, number][] = s.data.map((v, i) => [x(i), y(v)]);
     const lineD = smoothPath(pts);
 
     const areaD = `${lineD} L${x(n - 1)},${mt + ih} L${x(0)},${mt + ih} Z`;
-    svg.appendChild(svgEl(SVG_NS, "path", { class: `${s.key}-area`, d: areaD, "fill": `url(#${s.key}Grad)` }));
+    svg.appendChild(
+      svgEl(SVG_NS, "path", {
+        class: `${s.key}-area`,
+        d: areaD,
+        fill: `url(#${s.key}Grad)`,
+      }),
+    );
 
     // glow under the line
     svg.appendChild(
@@ -165,17 +238,35 @@ function makeLineChart(host: HTMLElement | null, series: NamedSeries[]): void {
         stroke: s.stroke,
         opacity: 0.35,
         "stroke-width": 6,
-      })
+      }),
     );
-    svg.appendChild(svgEl(SVG_NS, "path", { class: `${s.key}-path`, d: lineD, stroke: s.stroke }));
+    svg.appendChild(
+      svgEl(SVG_NS, "path", {
+        class: `${s.key}-path`,
+        d: lineD,
+        stroke: s.stroke,
+      }),
+    );
 
     // end point dot
     const last = pts[pts.length - 1];
     svg.appendChild(
-      svgEl(SVG_NS, "circle", { cx: last[0], cy: last[1], r: 4, fill: s.stroke })
+      svgEl(SVG_NS, "circle", {
+        cx: last[0],
+        cy: last[1],
+        r: 4,
+        fill: s.stroke,
+      }),
     );
     svg.appendChild(
-      svgEl(SVG_NS, "circle", { cx: last[0], cy: last[1], r: 4, fill: s.stroke, opacity: 0.3, "stroke-width": 6 })
+      svgEl(SVG_NS, "circle", {
+        cx: last[0],
+        cy: last[1],
+        r: 4,
+        fill: s.stroke,
+        opacity: 0.3,
+        "stroke-width": 6,
+      }),
     );
   });
 
@@ -198,9 +289,19 @@ function makeDonut(host: HTMLElement | null, percent: number): void {
   }) as SVGSVGElement;
 
   const defs = svgEl(SVG_NS, "defs", {});
-  const grad = svgEl(SVG_NS, "linearGradient", { id: "donutGrad", x1: "0", y1: "0", x2: "1", y2: "1" });
-  grad.appendChild(svgEl(SVG_NS, "stop", { offset: "0%", "stop-color": "#ffffff" }));
-  grad.appendChild(svgEl(SVG_NS, "stop", { offset: "100%", "stop-color": "#9a9a9a" }));
+  const grad = svgEl(SVG_NS, "linearGradient", {
+    id: "donutGrad",
+    x1: "0",
+    y1: "0",
+    x2: "1",
+    y2: "1",
+  });
+  grad.appendChild(
+    svgEl(SVG_NS, "stop", { offset: "0%", "stop-color": "#ffffff" }),
+  );
+  grad.appendChild(
+    svgEl(SVG_NS, "stop", { offset: "100%", "stop-color": "#9a9a9a" }),
+  );
   defs.appendChild(grad);
   svg.appendChild(defs);
 
@@ -255,19 +356,36 @@ function makeBarChart(host: HTMLElement | null): void {
   const x = (i: number) => ml + (i / data.length) * iw + iw / data.length / 2;
   const y = (v: number) => mt + ih - (v / maxV) * ih;
 
-  const svg = svgEl(SVG_NS, "svg", { viewBox: `0 0 ${w} ${h}`, "aria-label": "Batch throughput chart" }) as SVGSVGElement;
+  const svg = svgEl(SVG_NS, "svg", {
+    viewBox: `0 0 ${w} ${h}`,
+    "aria-label": "Batch throughput chart",
+  }) as SVGSVGElement;
 
   // grid
   for (let i = 0; i <= 4; i++) {
     const v = (maxV / 4) * i;
     const yy = y(v);
-    svg.appendChild(svgEl(SVG_NS, "line", { class: "grid-line", x1: ml, y1: yy, x2: w - mr, y2: yy }));
     svg.appendChild(
-      svgEl(SVG_NS, "text", { class: "tick", x: ml - 8, y: yy + 4, "text-anchor": "end", content: String(Math.round(v)) })
+      svgEl(SVG_NS, "line", {
+        class: "grid-line",
+        x1: ml,
+        y1: yy,
+        x2: w - mr,
+        y2: yy,
+      }),
+    );
+    svg.appendChild(
+      svgEl(SVG_NS, "text", {
+        class: "tick",
+        x: ml - 8,
+        y: yy + 4,
+        "text-anchor": "end",
+        content: String(Math.round(v)),
+      }),
     );
   }
 
-  const barW = iw / data.length * 0.52;
+  const barW = (iw / data.length) * 0.52;
 
   data.forEach((d, i) => {
     const cx = x(i);
@@ -283,15 +401,31 @@ function makeBarChart(host: HTMLElement | null): void {
     });
     g.appendChild(rect);
     g.appendChild(
-      svgEl(SVG_NS, "text", { class: "tick", x: cx, y: h - 8, "text-anchor": "middle", content: d.label })
+      svgEl(SVG_NS, "text", {
+        class: "tick",
+        x: cx,
+        y: h - 8,
+        "text-anchor": "middle",
+        content: d.label,
+      }),
     );
     svg.appendChild(g);
   });
 
   const defs = svgEl(SVG_NS, "defs", {});
-  const grad = svgEl(SVG_NS, "linearGradient", { id: "usrBarGrad", x1: "0", y1: "0", x2: "0", y2: "1" });
-  grad.appendChild(svgEl(SVG_NS, "stop", { offset: "0%", "stop-color": "#e6e6e6" }));
-  grad.appendChild(svgEl(SVG_NS, "stop", { offset: "100%", "stop-color": "#999999" }));
+  const grad = svgEl(SVG_NS, "linearGradient", {
+    id: "usrBarGrad",
+    x1: "0",
+    y1: "0",
+    x2: "0",
+    y2: "1",
+  });
+  grad.appendChild(
+    svgEl(SVG_NS, "stop", { offset: "0%", "stop-color": "#e6e6e6" }),
+  );
+  grad.appendChild(
+    svgEl(SVG_NS, "stop", { offset: "100%", "stop-color": "#999999" }),
+  );
   defs.appendChild(grad);
   svg.insertBefore(defs, svg.firstChild);
 
@@ -299,7 +433,13 @@ function makeBarChart(host: HTMLElement | null): void {
   data.forEach((d, i) => {
     const cx = x(i);
     svg.appendChild(
-      svgEl(SVG_NS, "text", { class: "axis-label", x: cx, y: y(d.value) - 8, "text-anchor": "middle", content: String(d.value) })
+      svgEl(SVG_NS, "text", {
+        class: "axis-label",
+        x: cx,
+        y: y(d.value) - 8,
+        "text-anchor": "middle",
+        content: String(d.value),
+      }),
     );
   });
 
@@ -398,8 +538,16 @@ function updateClock(): void {
   const greetEl = document.querySelector<HTMLElement>("#home-greeting");
   if (!clockEl && !dateEl) return;
   const now = new Date();
-  const time = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const date = now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+  const time = now.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const date = now.toLocaleDateString([], {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
   if (clockEl) clockEl.textContent = time;
   if (dateEl) dateEl.textContent = date;
   if (greetEl) greetEl.textContent = greetingForHour(now.getHours());
@@ -411,13 +559,108 @@ function startHomeClock(): void {
   clockInterval = window.setInterval(updateClock, 1000);
 }
 
-/* ===================== GPU meter ===================== */
+/* ===================== GPU meter (real stats via Tauri) ===================== */
 
-function fillGpuMeter(pct: number): void {
+function setGpuMeter(pct: number): void {
   const meter = document.querySelector<HTMLElement>("#gpu-meter");
   const label = document.querySelector<HTMLElement>("#gpu-count");
   if (meter) requestAnimationFrame(() => (meter.style.width = `${pct}%`));
   if (label) label.textContent = `${pct}%`;
+}
+
+/** Format MB as a human-readable GB string. */
+function formatMem(mb: number | null): string {
+  if (mb == null) return "—";
+  const gb = mb / 1024;
+  return gb >= 100 ? `${gb.toFixed(0)} GB` : `${gb.toFixed(1)} GB`;
+}
+
+/** Set a labeled meter + value row (generic helper). */
+function setMeterRow(
+  meterId: string,
+  valueId: string,
+  pct: number,
+  text: string,
+): void {
+  const meter = document.querySelector<HTMLElement>(`#${meterId}`);
+  const value = document.querySelector<HTMLElement>(`#${valueId}`);
+  if (meter)
+    requestAnimationFrame(
+      () => (meter.style.width = `${Math.min(100, Math.max(0, pct))}%`),
+    );
+  if (value) value.textContent = text;
+}
+
+/** Apply real system stats (GPU, CPU, RAM) to the sidebar card. */
+function applySystemStats(stats: SystemStats): void {
+  // GPU
+  const gpuNameEl = document.querySelector<HTMLElement>("#gpu-name");
+  if (gpuNameEl) gpuNameEl.textContent = stats.gpu.name || "GPU unavailable";
+  setGpuMeter(stats.gpu.utilization ?? 0);
+  const vramEl = document.querySelector<HTMLElement>("#vram-val");
+  if (vramEl)
+    vramEl.textContent = `${formatMem(stats.gpu.vram_used_mb)} / ${formatMem(stats.gpu.vram_total_mb)}`;
+  const tempEl = document.querySelector<HTMLElement>("#gpu-temp");
+  if (tempEl)
+    tempEl.textContent =
+      stats.gpu.temperature_c != null ? `${stats.gpu.temperature_c}°C` : "—";
+
+  // CPU
+  const cpuNameEl = document.querySelector<HTMLElement>("#cpu-name");
+  if (cpuNameEl) cpuNameEl.textContent = stats.cpu.name || "CPU unavailable";
+  setMeterRow(
+    "cpu-meter",
+    "cpu-count",
+    stats.cpu.utilization ?? 0,
+    `${stats.cpu.utilization ?? 0}%`,
+  );
+  const cpuCoresEl = document.querySelector<HTMLElement>("#cpu-cores");
+  if (cpuCoresEl)
+    cpuCoresEl.textContent =
+      stats.cpu.cores != null ? `${stats.cpu.cores} cores` : "—";
+
+  // RAM
+  const ramUsed = stats.ram.used_mb ?? 0;
+  const ramTotal = stats.ram.total_mb ?? 0;
+  const ramPct = ramTotal > 0 ? Math.round((ramUsed / ramTotal) * 100) : 0;
+  setMeterRow("ram-meter", "ram-count", ramPct, `${ramPct}%`);
+  const ramEl = document.querySelector<HTMLElement>("#ram-val");
+  if (ramEl)
+    ramEl.textContent = `${formatMem(stats.ram.used_mb)} / ${formatMem(stats.ram.total_mb)}`;
+}
+
+/** Fetch real system stats from the Tauri backend; fall back to mock data offline. */
+async function loadSystemStats(): Promise<void> {
+  // Fallback values used when running outside the Tauri runtime.
+  const fallback: SystemStats = {
+    gpu: {
+      name: "RTX A6000 ×4",
+      vendor: "NVIDIA",
+      utilization: 86,
+      vram_used_mb: 172 * 1024,
+      vram_total_mb: 192 * 1024,
+      temperature_c: 64,
+      real: false,
+    },
+    cpu: {
+      name: "Intel Core i9‑13900K",
+      utilization: 38,
+      cores: 24,
+      real: false,
+    },
+    ram: {
+      used_mb: 28 * 1024,
+      total_mb: 64 * 1024,
+      real: false,
+    },
+  };
+
+  try {
+    const stats = await invoke<SystemStats>("system_stats");
+    applySystemStats(stats);
+  } catch {
+    applySystemStats(fallback);
+  }
 }
 
 /* ===================== Count-up for stats ===================== */
@@ -432,9 +675,11 @@ function bindCountUps(): void {
         }
       });
     },
-    { threshold: 0.3 }
+    { threshold: 0.3 },
   );
-  document.querySelectorAll<HTMLElement>(".stat-value").forEach((el) => observer.observe(el));
+  document
+    .querySelectorAll<HTMLElement>(".stat-value")
+    .forEach((el) => observer.observe(el));
 }
 
 /* ===================== Charts for Overview ===================== */
@@ -460,8 +705,13 @@ function renderOverviewCharts(): void {
     }
   });
 
-  const loss = [1.35, 1.12, 0.96, 0.84, 0.74, 0.65, 0.58, 0.52, 0.47, 0.42, 0.39, 0.36, 0.34, 0.326, 0.312];
-  const acc = [62, 68, 73, 77, 80, 83, 85, 87.5, 89, 90.4, 91.5, 92.4, 93.2, 94, 94.8];
+  const loss = [
+    1.35, 1.12, 0.96, 0.84, 0.74, 0.65, 0.58, 0.52, 0.47, 0.42, 0.39, 0.36,
+    0.34, 0.326, 0.312,
+  ];
+  const acc = [
+    62, 68, 73, 77, 80, 83, 85, 87.5, 89, 90.4, 91.5, 92.4, 93.2, 94, 94.8,
+  ];
 
   makeLineChart(document.querySelector('[data-chart="line"]'), [
     { key: "train", stroke: "#ffffff", area: "#ffffff", data: loss },
@@ -503,7 +753,9 @@ function trainConsoleLog(msg: string, cls = "ok"): void {
 }
 
 function updateTrainUI(): void {
-  const pct = trainState.epochs ? Math.round((trainState.current / trainState.epochs) * 100) : 0;
+  const pct = trainState.epochs
+    ? Math.round((trainState.current / trainState.epochs) * 100)
+    : 0;
   const set = (id: string, val: string) => {
     const el = document.querySelector<HTMLElement>(`#${id}`);
     if (el) el.textContent = val;
@@ -511,9 +763,15 @@ function updateTrainUI(): void {
   set("run-pct", `${pct}%`);
   set("run-epoch", `${trainState.current} / ${trainState.epochs}`);
   set("run-loss", trainState.current > 0 ? trainState.loss.toFixed(3) : "—");
-  set("run-acc", trainState.current > 0 ? `${trainState.acc.toFixed(1)}%` : "—");
+  set(
+    "run-acc",
+    trainState.current > 0 ? `${trainState.acc.toFixed(1)}%` : "—",
+  );
   const remaining = trainState.epochs - trainState.current;
-  set("run-eta", remaining > 0 ? `~${Math.max(1, Math.round(remaining * 0.4))}m` : "done");
+  set(
+    "run-eta",
+    remaining > 0 ? `~${Math.max(1, Math.round(remaining * 0.4))}m` : "done",
+  );
 
   const meter = document.querySelector<HTMLElement>("#run-meter");
   if (meter) meter.style.width = `${pct}%`;
@@ -557,21 +815,38 @@ function startTraining(): void {
     status.textContent = "● Running";
     status.classList.add("ok");
   }
-  trainConsoleLog(`Starting run · ${archEl?.value ?? "Model"} · ${trainState.epochs} epochs.`);
+  trainConsoleLog(
+    `Starting run · ${archEl?.value ?? "Model"} · ${trainState.epochs} epochs.`,
+  );
   trainConsoleLog("Loading dataset…", "warn");
   trainConsoleLog("Compiling on GPU · batch 32.", "dim");
 
   trainState.timer = window.setInterval(() => {
     trainState.current += 1;
-    trainState.loss = Math.max(0.08, trainState.loss - 0.028 - Math.random() * 0.02);
-    trainState.acc = Math.min(96.5, trainState.acc + (Math.random() * 1.4 + 0.3));
+    trainState.loss = Math.max(
+      0.08,
+      trainState.loss - 0.028 - Math.random() * 0.02,
+    );
+    trainState.acc = Math.min(
+      96.5,
+      trainState.acc + (Math.random() * 1.4 + 0.3),
+    );
     updateTrainUI();
-    if (trainState.current % 10 === 0 || trainState.current === trainState.epochs) {
-      trainConsoleLog(`Epoch ${trainState.current}/${trainState.epochs} · loss ${trainState.loss.toFixed(3)} · acc ${trainState.acc.toFixed(1)}%`, "ok");
+    if (
+      trainState.current % 10 === 0 ||
+      trainState.current === trainState.epochs
+    ) {
+      trainConsoleLog(
+        `Epoch ${trainState.current}/${trainState.epochs} · loss ${trainState.loss.toFixed(3)} · acc ${trainState.acc.toFixed(1)}%`,
+        "ok",
+      );
     }
     if (trainState.current >= trainState.epochs) {
       stopTraining();
-      trainConsoleLog(`Run complete · final acc ${trainState.acc.toFixed(1)}%.`, "ok");
+      trainConsoleLog(
+        `Run complete · final acc ${trainState.acc.toFixed(1)}%.`,
+        "ok",
+      );
       if (btn) btn.textContent = "▸ Start Run";
     }
   }, 700);
@@ -610,7 +885,7 @@ function simulateTest(): void {
   // build ranked predictions
   const preds = CLASS_POOL.map((label, i) => ({
     label,
-    conf: (0.92 - i * 0.1 - Math.random() * 0.04),
+    conf: 0.92 - i * 0.1 - Math.random() * 0.04,
   }))
     .sort((a, b) => b.conf - a.conf)
     .map((p, i) => ({ ...p, conf: Math.max(0.02, p.conf - i * 0.03) }));
@@ -697,7 +972,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   // Persist-level features (sidebar, always present)
-  fillGpuMeter(86);
+  loadSystemStats();
 
   // Initial route
   setRoute(window.location.hash ? parseRoute(window.location.hash) : "home");

@@ -52,14 +52,52 @@
             </div>
             <div class="gpu-usage">
               <div class="gpu-label">
-                <span>RTX A6000 ×4</span>
-                <span class="gpu-count" id="gpu-count">86%</span>
+                <span id="gpu-name">Detecting GPU…</span>
+                <span class="gpu-count" id="gpu-count">—%</span>
               </div>
-              <div class="meter"><div class="meter-fill gpu" id="gpu-meter"></div></div>
+              <div class="meter">
+                <div class="meter-fill gpu" id="gpu-meter"></div>
+              </div>
             </div>
             <div class="usage-mini">
               <span>VRAM</span>
-              <span class="mini-val" id="vram-val">172 / 192 GB</span>
+              <span class="mini-val" id="vram-val">—</span>
+            </div>
+            <div class="usage-mini">
+              <span>Temp</span>
+              <span class="mini-val" id="gpu-temp">—</span>
+            </div>
+
+            <div class="sys-divider"></div>
+
+            <div class="sys-section">
+              <div class="gpu-label">
+                <span id="cpu-name">Detecting CPU…</span>
+                <span class="gpu-count" id="cpu-count">—%</span>
+              </div>
+              <div class="meter">
+                <div class="meter-fill gpu" id="cpu-meter"></div>
+              </div>
+              <div class="usage-mini">
+                <span>Threads</span>
+                <span class="mini-val" id="cpu-cores">—</span>
+              </div>
+            </div>
+
+            <div class="sys-divider"></div>
+
+            <div class="sys-section">
+              <div class="gpu-label">
+                <span>RAM</span>
+                <span class="gpu-count" id="ram-count">—%</span>
+              </div>
+              <div class="meter">
+                <div class="meter-fill gpu" id="ram-meter"></div>
+              </div>
+              <div class="usage-mini">
+                <span>Used</span>
+                <span class="mini-val" id="ram-val">—</span>
+              </div>
             </div>
           </div>
           <div class="user">
