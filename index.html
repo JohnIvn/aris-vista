@@ -4,40 +4,77 @@
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri App</title>
+    <title>Arís Vista — ML Studio</title>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
 
   <body>
-    <main class="container">
-      <h1>Welcome to Tauri</h1>
+    <div class="scene" aria-hidden="true">
+      <div class="blob blob-1"></div>
+      <div class="blob blob-2"></div>
+      <div class="blob blob-3"></div>
+      <div class="blob blob-4"></div>
+      <div class="grain"></div>
+    </div>
 
-      <div class="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/src/assets/vite.svg" class="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img
-            src="/src/assets/tauri.svg"
-            class="logo tauri"
-            alt="Tauri logo"
-          />
-        </a>
-        <a href="https://www.typescriptlang.org/docs" target="_blank">
-          <img
-            src="/src/assets/typescript.svg"
-            class="logo typescript"
-            alt="typescript logo"
-          />
-        </a>
-      </div>
-      <p>Click on the Tauri logo to learn more about the framework</p>
+    <div class="app">
+      <!-- ======================= SIDEBAR ======================= -->
+      <aside class="sidebar glass">
+        <div class="brand">
+          <div class="brand-mark">◆</div>
+          <div class="brand-name">
+            <span class="brand-title">Arís Vista</span>
+            <span class="brand-sub">ML Studio</span>
+          </div>
+        </div>
 
-      <form class="row" id="greet-form">
-        <input id="greet-input" placeholder="Enter a name..." />
-        <button type="submit">Greet</button>
-      </form>
-      <p id="greet-msg"></p>
-    </main>
+        <nav class="nav">
+          <span class="nav-label">Menu</span>
+          <a class="nav-item" data-nav="home" href="#home">
+            <span class="nav-icon">⌂</span> Home
+          </a>
+          <a class="nav-item" data-nav="overview" href="#overview">
+            <span class="nav-icon">▦</span> Overview
+          </a>
+          <a class="nav-item" data-nav="train" href="#train">
+            <span class="nav-icon">◎</span> Train
+          </a>
+          <a class="nav-item" data-nav="test" href="#test">
+            <span class="nav-icon">✓</span> Test
+          </a>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="usage-card">
+            <div class="usage-head">
+              <span class="usage-title">GPU Cluster</span>
+              <span class="usage-live"><i class="pulse-dot"></i> Live</span>
+            </div>
+            <div class="gpu-usage">
+              <div class="gpu-label">
+                <span>RTX A6000 ×4</span>
+                <span class="gpu-count" id="gpu-count">86%</span>
+              </div>
+              <div class="meter"><div class="meter-fill gpu" id="gpu-meter"></div></div>
+            </div>
+            <div class="usage-mini">
+              <span>VRAM</span>
+              <span class="mini-val" id="vram-val">172 / 192 GB</span>
+            </div>
+          </div>
+          <div class="user">
+            <div class="avatar">AK</div>
+            <div class="user-info">
+              <span class="user-name">Alex Kim</span>
+              <span class="user-role">ML Engineer</span>
+            </div>
+            <button class="icon-btn" aria-label="settings">⚙</button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ======================= CONTENT (mounted by main.ts) ======================= -->
+      <main class="content" id="app-root"></main>
+    </div>
   </body>
 </html>
